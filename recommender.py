@@ -1,3 +1,7 @@
+
+
+
+
 """
 recommender.py  —  Product Recommender (Phase 1)
 =================================================
@@ -19,10 +23,7 @@ load_dotenv()
 
 REQUIRED_KEYS = [
     "ANTHROPIC_API_KEY",
-    "SERPER_API_KEY",
-    "REDDIT_CLIENT_ID",
-    "REDDIT_CLIENT_SECRET",
-    "REDDIT_USER_AGENT",
+    "SERPER_API_KEY"
 ]
 
 missing = [k for k in REQUIRED_KEYS if not os.getenv(k)]
@@ -36,13 +37,6 @@ if missing:
 # ─── Clients ─────────────────────────────────────────────────────────────────
 
 claude = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-
-reddit = praw.Reddit(
-    client_id=os.getenv("REDDIT_CLIENT_ID"),
-    client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
-    user_agent=os.getenv("REDDIT_USER_AGENT"),
-)
-
 
 # ─── Step 1: Google Shopping via Serper ──────────────────────────────────────
 
@@ -86,43 +80,7 @@ def fetch_products(query: str, budget: float) -> list[dict]:
     products.sort(key=lambda x: (-(x["rating"] or 0), x["price"]))
 
     print(f"✅  Found {len(products)} products within budget")
-    return products[:5]
-
-
-# ─── Step 2: Reddit opinions ─────────────────────────────────────────────────
-
-def fetch_reddit_opinions(product_name: str) -> str:
-    print(f"\n💬  Fetching Reddit opinions for: '{product_name}'")
-
-    try:
-        posts = reddit.subreddit("all").search(
-            query=f"{product_name} review",
-            sort="relevance",
-            limit=5,
-            time_filter="year",
-        )
-
-        snippets = []
-        for post in posts:
-            post.comments.replace_more(limit=0)
-            comments = [
-                c.body[:250]
-                for c in post.comments.list()[:2]
-                if hasattr(c, "body") and len(c.body) > 30
-            ]
-            if comments:
-                snippets.append(f"• {post.title}\n  {' | '.join(comments)}")
-
-        if not snippets:
-            return "No Reddit opinions found."
-
-        print(f"✅  Got {len(snippets)} Reddit threads")
-        return "\n\n".join(snippets)[:2000]
-
-    except Exception as e:
-        print(f"⚠️  Reddit fetch failed: {e}")
-        return "Reddit opinions unavailable."
-
+    return products
 
 # ─── Step 3: YouTube transcript ──────────────────────────────────────────────
 
@@ -169,7 +127,6 @@ def get_recommendation(
     user_query: str,
     budget: float,
     products: list[dict],
-    reddit_opinions: str,
     youtube_transcript: str,
 ) -> str:
     print("\n🤖  Asking Claude for recommendation...")
@@ -187,9 +144,6 @@ BUDGET: ₹{budget:,.0f}
 
 PRODUCTS FOUND (within budget, sorted by rating):
 {product_list}
-
-REDDIT USER OPINIONS:
-{reddit_opinions}
 
 YOUTUBE REVIEW SNIPPET:
 {youtube_transcript}
@@ -240,18 +194,15 @@ def recommend(user_query: str, budget: float):
 
     top_product = products[0]["title"]
 
-    # 2. Reddit
-    reddit_opinions = fetch_reddit_opinions(top_product)
-
     # 3. YouTube
     youtube_transcript = fetch_youtube_transcript(top_product)
-
+    print(youtube_transcript);
+    quit()
     # 4. Claude
     result = get_recommendation(
         user_query=user_query,
         budget=budget,
         products=products,
-        reddit_opinions=reddit_opinions,
         youtube_transcript=youtube_transcript,
     )
 
@@ -267,6 +218,6 @@ def recommend(user_query: str, budget: float):
 if __name__ == "__main__":
     # ✏️  Change these two lines to test
     recommend(
-        user_query="laptop for video editing and coding",
-        budget=70000,
+        user_query="Good non-marking shoes for indoor sports",
+        budget=2000,
     )
