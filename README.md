@@ -2,7 +2,7 @@
 
 Tell it what you need + your budget.
 It searches Google Shopping, reads Reddit opinions, pulls YouTube review transcripts,
-and asks Claude to pick the best product for you.
+and asks Gemini to pick the best product for you.
 
 ---
 
@@ -22,10 +22,10 @@ recommender/
 
 You need accounts on 3 services. All have free tiers.
 
-### A) Anthropic (Claude)
-1. Go to https://console.anthropic.com
-2. Sign up → go to "API Keys" → click "Create Key"
-3. Copy the key — starts with `sk-ant-...`
+### A) Google Gemini
+1. Go to https://aistudio.google.com
+2. Sign up → click "Get API key"
+3. Create an API key and copy it
 
 ### B) Serper (Google Shopping)
 1. Go to https://serper.dev
@@ -72,7 +72,7 @@ cp .env.example .env
 Now open `.env` in any text editor and fill in your keys:
 
 ```
-ANTHROPIC_API_KEY=sk-ant-xxxxxxxx
+GEMINI_API_KEY=xxxxxxxx
 SERPER_API_KEY=xxxxxxxx
 REDDIT_CLIENT_ID=xxxxxxxx
 REDDIT_CLIENT_SECRET=xxxxxxxx
@@ -120,7 +120,7 @@ python recommender.py
 ▶️   Fetching YouTube transcript...
 ✅  Got transcript: ASUS VivoBook 15 Full Review...
 
-🤖  Asking Claude for recommendation...
+🤖  Asking Gemini for recommendation...
 
 ============================================================
   📋  RECOMMENDATION

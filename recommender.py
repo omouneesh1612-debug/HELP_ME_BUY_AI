@@ -11,18 +11,24 @@ Run:
 
 import os
 import re
-import praw
+import sys
 import requests
-from anthropic import Anthropic
+from google import genai
 from youtube_transcript_api import YouTubeTranscriptApi
 from dotenv import load_dotenv
+
+# Force stdout/stderr to use UTF-8 to prevent UnicodeEncodeError with emojis on Windows
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
 
 load_dotenv()
 
 # ─── Check all keys are present before doing anything ────────────────────────
 
 REQUIRED_KEYS = [
-    "ANTHROPIC_API_KEY",
+    "GEMINI_API_KEY",
     "SERPER_API_KEY"
 ]
 
@@ -36,28 +42,33 @@ if missing:
 
 # ─── Clients ─────────────────────────────────────────────────────────────────
 
-claude = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 # ─── Step 1: Google Shopping via Serper ──────────────────────────────────────
 
 def fetch_products(query: str, budget: float) -> list[dict]:
     print(f"\n🔍  Searching Google Shopping for: '{query}'  |  Budget: ₹{budget:,.0f}")
 
-    try:
-        response = requests.post(
-            "https://google.serper.dev/shopping",
-            headers={
-                "X-API-KEY": os.getenv("SERPER_API_KEY"),
-                "Content-Type": "application/json",
-            },
-            json={"q": query, "gl": "in", "hl": "en"},
-            timeout=10,
-        )
-        response.raise_for_status()
-        items = response.json().get("shopping", [])
-    except Exception as e:
-        print(f"⚠️  Serper fetch failed: {e}")
-        return []
+    items = []
+    for attempt in range(1, 3):
+        try:
+            response = requests.post(
+                "https://google.serper.dev/shopping",
+                headers={
+                    "X-API-KEY": os.getenv("SERPER_API_KEY"),
+                    "Content-Type": "application/json",
+                },
+                json={"q": query, "gl": "in", "hl": "en"},
+                timeout=20,
+            )
+            response.raise_for_status()
+            items = response.json().get("shopping", [])
+            break
+        except Exception as e:
+            if attempt == 2:
+                print(f"⚠️  Serper fetch failed (Attempt {attempt}/2): {e}")
+                return []
+            print(f"⚠️  Serper fetch timed out or failed. Retrying (Attempt {attempt}/2)...")
 
     products = []
     for item in items:
@@ -87,22 +98,27 @@ def fetch_products(query: str, budget: float) -> list[dict]:
 def fetch_youtube_transcript(product_name: str) -> str:
     print(f"\n▶️   Fetching YouTube transcript for: '{product_name} review'")
 
-    try:
-        # Use Serper to find YouTube video IDs (uses your Serper quota)
-        response = requests.post(
-            "https://google.serper.dev/videos",
-            headers={
-                "X-API-KEY": os.getenv("SERPER_API_KEY"),
-                "Content-Type": "application/json",
-            },
-            json={"q": f"{product_name} review", "gl": "in"},
-            timeout=10,
-        )
-        response.raise_for_status()
-        videos = response.json().get("videos", [])
-    except Exception as e:
-        print(f"⚠️  YouTube search failed: {e}")
-        return "YouTube transcript unavailable."
+    videos = []
+    for attempt in range(1, 3):
+        try:
+            # Use Serper to find YouTube video IDs (uses your Serper quota)
+            response = requests.post(
+                "https://google.serper.dev/videos",
+                headers={
+                    "X-API-KEY": os.getenv("SERPER_API_KEY"),
+                    "Content-Type": "application/json",
+                },
+                json={"q": f"{product_name} review", "gl": "in"},
+                timeout=20,
+            )
+            response.raise_for_status()
+            videos = response.json().get("videos", [])
+            break
+        except Exception as e:
+            if attempt == 2:
+                print(f"⚠️  YouTube search failed (Attempt {attempt}/2): {e}")
+                return "YouTube transcript unavailable."
+            print(f"⚠️  YouTube search timed out or failed. Retrying (Attempt {attempt}/2)...")
 
     for video in videos[:4]:
         link = video.get("link", "")
@@ -121,7 +137,7 @@ def fetch_youtube_transcript(product_name: str) -> str:
     return "No YouTube transcript available."
 
 
-# ─── Step 4: Claude recommendation ──────────────────────────────────────────
+# ─── Step 4: Gemini recommendation ──────────────────────────────────────────
 
 def get_recommendation(
     user_query: str,
@@ -129,7 +145,7 @@ def get_recommendation(
     products: list[dict],
     youtube_transcript: str,
 ) -> str:
-    print("\n🤖  Asking Claude for recommendation...")
+    print("\n🤖  Asking Gemini for recommendation...")
 
     product_list = "\n".join(
         f"  {i+1}. {p['title']} | ₹{p['price']:,.0f} | "
@@ -167,13 +183,12 @@ One punchy sentence.
 
 Keep it practical. Use ₹ for prices. No fluff."""
 
-    response = claude.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=1000,
-        messages=[{"role": "user", "content": prompt}],
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
     )
 
-    return response.content[0].text
+    return response.text
 
 
 # ─── Orchestrator ────────────────────────────────────────────────────────────
@@ -196,9 +211,8 @@ def recommend(user_query: str, budget: float):
 
     # 3. YouTube
     youtube_transcript = fetch_youtube_transcript(top_product)
-    print(youtube_transcript);
-    quit()
-    # 4. Claude
+
+    # 4. Gemini
     result = get_recommendation(
         user_query=user_query,
         budget=budget,
@@ -216,8 +230,36 @@ def recommend(user_query: str, budget: float):
 # ─── Entry point ─────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    # ✏️  Change these two lines to test
+    print("\n" + "=" * 60)
+    print("  👋  Welcome to the AI Product Recommender!")
+    print("=" * 60)
+
+    # Get user query
+    user_query = ""
+    while not user_query.strip():
+        user_query = input("\n💬 What are you looking to buy?\n👉 ")
+        if not user_query.strip():
+            print("⚠️  Please enter a valid product description.")
+
+    # Get budget
+    budget = 0.0
+    while True:
+        budget_str = input("\n💰 What is your maximum budget in ₹ (INR)?\n👉 ")
+        # Strip currency symbols and commas to be user friendly
+        budget_clean = re.sub(r"[^\d.]", "", budget_str)
+        if not budget_clean:
+            print("⚠️  Please enter a valid number for the budget.")
+            continue
+        try:
+            budget = float(budget_clean)
+            if budget <= 0:
+                print("⚠️  Budget must be greater than 0.")
+                continue
+            break
+        except ValueError:
+            print("⚠️  Please enter a valid number for the budget.")
+
     recommend(
-        user_query="Good non-marking shoes for indoor sports",
-        budget=2000,
+        user_query=user_query.strip(),
+        budget=budget,
     )

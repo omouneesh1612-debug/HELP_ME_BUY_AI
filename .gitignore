@@ -1,0 +1,25 @@
+# Environment variables (sensitive API keys)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Python Virtual Environment
+venv/
+ENV/
+env/
+.venv/
+
+# Python cache and temporary files
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
