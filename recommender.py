@@ -147,41 +147,97 @@ def get_recommendation(
 ) -> str:
     print("\n🤖  Asking Gemini for recommendation...")
 
-    product_list = "\n".join(
-        f"  {i+1}. {p['title']} | ₹{p['price']:,.0f} | "
-        f"Rating: {p['rating'] or 'N/A'} | Store: {p['source']}"
-        for i, p in enumerate(products)
+    has_products   = bool(products)
+    has_transcript = bool(youtube_transcript and youtube_transcript.strip()
+                         and youtube_transcript not in (
+                             "No transcript found.",
+                             "No YouTube transcript available.",
+                             "YouTube transcript unavailable.",
+                         ))
+
+    products_section = (
+        "\n".join(
+            f"  [{i+1}] {p['title']}\n"
+            f"       Price : ₹{p['price']:,.0f}\n"
+            f"       Rating: {p['rating'] or 'N/A'}\n"
+            f"       Store : {p['source']}"
+            for i, p in enumerate(products)
+        )
+        if has_products
+        else "  ⚠️  No products were found in Google Shopping for this query."
     )
 
-    prompt = f"""You are a sharp, no-nonsense product advisor for Indian consumers.
+    transcript_section = (
+        f"YOUTUBE REVIEW TRANSCRIPT (excerpted from a real review video):\n{youtube_transcript}"
+        if has_transcript
+        else "YOUTUBE REVIEW: No transcript was available."
+    )
 
-USER'S NEED: {user_query}
-BUDGET: ₹{budget:,.0f}
+    grounding_rules = """
+┌────────────────────────────────────────────────────────────────┐
+│  DATA-GROUNDING RULES — FOLLOW EXACTLY                           │
+├────────────────────────────────────────────────────────────────┤
+│ R1. BEST PICK should ideally be from the shopping list above.   │
+│     However, if you know a strictly better alternative within   │
+│     budget that isn't listed, you MAY recommend it instead.     │
+│ R2. If you pick a listed item, copy its name and price exactly. │
+│     If you suggest an unlisted alternative, state clearly that  │
+│     it's an LLM-suggested alternative and estimate its price.   │
+│ R3. PROS/CONS must be grounded in the list data OR the          │
+│     YouTube transcript. Cite which source for each point.       │
+│ R4. If the transcript is available, extract ≥1 concrete insight │
+│     from it (e.g. a reviewer quote or observation).             │
+│ R5. STRETCH OPTION may use general knowledge for a model        │
+│     not in the list, but MUST note it is outside budget.        │
+│ R6. If the shopping data is absent, say so and use knowledge.   │
+│ R7. If the transcript is absent, skip transcript citations.     │
+└────────────────────────────────────────────────────────────────┘"""
 
-PRODUCTS FOUND (within budget, sorted by rating):
-{product_list}
+    prompt = f"""You are a data-grounded product advisor for Indian consumers.
+Your job is to synthesise LIVE shopping data + real YouTube review insights
+into a concrete recommendation. You must follow the grounding rules strictly.
+{grounding_rules}
 
-YOUTUBE REVIEW SNIPPET:
-{youtube_transcript}
+══ USER REQUEST ══
+Need  : {user_query}
+Budget: ₹{budget:,.0f}
 
-Give me a clean, structured recommendation:
+══ LIVE GOOGLE SHOPPING DATA (fetched right now, prices are current) ══
+{products_section}
+
+══ {transcript_section}
+
+══ OUTPUT FORMAT ══
+Respond in exactly this structure:
 
 **BEST PICK**
-Name + price. In 2-3 sentences explain exactly why this is the best choice for the user's specific need.
+[Product name exactly as in list OR LLM-suggested alternative] — ₹[exact price from list OR estimated price]
+2–3 sentences: why this fits the user’s need, referencing rating/store
+{"and at least one YouTube insight." if has_transcript else "."}
 
-**PROS**
-- (3 specific pros, not generic)
+**BETTER ALTERNATIVES (IF ANY)**
+If you picked a listed item but know a significantly better product for the same budget that wasn't listed, mention it here. Otherwise, omit this section.
 
-**CONS**
-- (2 honest cons)
+**PROS** (label each: [Shopping] / [YouTube] / [General knowledge])
+-
+-
+-
+
+**CONS** (honest, specific)
+-
+-
 
 **STRETCH OPTION**
-If the user increased their budget by 20% to ₹{budget * 1.20:,.0f}, what should they buy instead and what concrete benefit does it add? Use your knowledge if needed.
+If budget increases 20% to ₹{budget * 1.20:,.0f}: name a specific better product
+and state the exact improvement it provides.
+
+**SOURCES USED**
+- Google Shopping: {len(products)} products checked, prices as of today
+- YouTube transcript: {"used" if has_transcript else "not available"}
+- Gemini knowledge: supplementary only
 
 **VERDICT**
-One punchy sentence.
-
-Keep it practical. Use ₹ for prices. No fluff."""
+One punchy sentence. No fluff."""
 
     response = client.models.generate_content(
         model="gemini-2.5-flash",
